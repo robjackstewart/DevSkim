@@ -90,7 +90,9 @@ namespace Microsoft.DevSkim.CLI.Commands
                             Region region = issueRecord.PhysicalLocation.Region;
                             int zeroBasedStartLine = region.StartLine - 1;
                             bool isMultiline = theContent[zeroBasedStartLine].EndsWith(@"\");
-                            string ignoreComment = DevSkimRuleProcessor.GenerateSuppressionByLanguage(region.SourceLanguage, issueRecord.RulesId, _opts.PreferMultiline || isMultiline, _opts.Duration, _opts.Reviewer, devSkimLanguages);
+                            var commentPrefix = devSkimLanguages.GetCommentPrefix(region.SourceLanguage);
+                            var ignoreComment= DevSkimRuleProcessor.GenerateSuppressionByLanguage(region.SourceLanguage, issueRecord.RulesId, _opts.PreferMultiline || isMultiline, _opts.Duration, _opts.Reviewer, devSkimLanguages);
+                            var ignoreCommentWithoutPrefix = DevSkimRuleProcessor.GenerateSuppressionByLanguage(region.SourceLanguage, issueRecord.RulesId, _opts.PreferMultiline || isMultiline, _opts.Duration, _opts.Reviewer, devSkimLanguages);
                             if (!string.IsNullOrEmpty(ignoreComment))
                             {
                                 foreach (string line in theContent[currLine..zeroBasedStartLine])
@@ -100,10 +102,14 @@ namespace Microsoft.DevSkim.CLI.Commands
 
                                 if (!theContent[zeroBasedStartLine].Contains(ignoreComment)) // if the target line already contains the ignore comment
                                 {
-                                string suppressionComment = isMultiline ? $"{ignoreComment}{theContent[zeroBasedStartLine]}{Environment.NewLine}" :
-                                    $"{theContent[zeroBasedStartLine]} {ignoreComment}{Environment.NewLine}";
-                                sb.Append(suppressionComment);
-                            }
+                                    string suppressionComment = isMultiline ? $"{ignoreComment}{theContent[zeroBasedStartLine]}{Environment.NewLine}" :
+                                        $"{theContent[zeroBasedStartLine]} {ignoreComment}{Environment.NewLine}";
+                                    sb.Append(suppressionComment);
+                                }
+                                else
+                                {
+                                    sb.Append($"{theContent[zeroBasedStartLine]}{Environment.NewLine}");
+                                }
                             }
 
                             currLine = zeroBasedStartLine + 1;

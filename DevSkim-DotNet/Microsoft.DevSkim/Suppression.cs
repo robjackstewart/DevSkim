@@ -2,7 +2,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
+using System.Net.NetworkInformation;
+using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.ApplicationInspector.RulesEngine;
 
@@ -13,98 +16,115 @@ namespace Microsoft.DevSkim
     /// </summary>
     public class Suppression
     {
-        private string _reviewer = string.Empty;
-        public const string pattern = KeywordPrefix + @"\s+" + KeywordIgnore + @"\s([a-zA-Z\d,:]+)(\s+" + KeywordUntil + @"\s\d{4}-\d{2}-\d{2}|)(\s+" + KeywordBy + @"\s([A-Za-z0-9_]+)|)";
+        protected const string KeywordAll = "all";
+        protected const string KeywordIgnore = "ignore";
+        protected const string KeywordPrefix = "DevSkim:";
+        protected const string KeywordUntil = "until";
+        protected const string KeywordBy = "by";
+        public const string PATTERN = KeywordPrefix + @"\s+" + KeywordIgnore + @"\s([a-zA-Z\d,:]+)(\s+" + KeywordUntil + @"\s\d{4}-\d{2}-\d{2}|)(\s+" + KeywordBy + @"\s([A-Za-z0-9_]+)|)";
+        public const string DATETIME_FORMAT = "yyyy-MM-dd";
 
-        /// <summary>
-        ///     Creates new instance of Supressor
-        /// </summary>
-        /// <param name="text"> Text to work with </param>
-        public Suppression(string text)
+        public readonly Line? Line;
+        public ImmutableArray<SuppressedIssue> Issues { get; private set; } = new();
+        public Boundary Boundary { get; private set; }
+        public DateTime? ExpirationDate { get; private set; } = null;
+        public Boundary? IssuesBoundary { get; private set; }
+        public string? Reviewer { get; private set; } = string.Empty;
+        public bool IsInEffect => HasIssues() && !IsExpired();
+        public string[] GetSuppressedIds => IssueBoundarysById.Keys.OrderBy(k => k).ToArray();
+        public readonly string? Prefix = null;
+        public readonly string? Suffix = null;
+        private readonly Dictionary<string, Boundary> IssueBoundarysById = new();
+
+        private Suppression(string? reviewer, DateTime? expirationDate, Dictionary<string, Boundary> issueBoundarysById, Line? line, Boundary boundary, Boundary? issuesBoundary)
         {
-            if (text is null)
+            ExpirationDate = expirationDate;
+            IssueBoundarysById = issueBoundarysById;
+            Line = line;
+            Boundary = boundary;
+            Reviewer = reviewer is null ? string.Empty : reviewer;
+            IssuesBoundary = issuesBoundary;
+        }
+
+        public Suppression(string? reviewer, DateTime? expirationDate, IEnumerable<string> issueIds, Line line)
+        {
+            Line = line;
+            Reviewer = reviewer;
+            ExpirationDate = expirationDate;
+            if (line is not null)
             {
-                throw new ArgumentNullException(nameof(text));
+                var lineParseResult = LineParseResult.From(line);
+                Boundary = lineParseResult.SuppressionBoundary;
+                IssueBoundarysById = new Dictionary<string, Boundary>(lineParseResult.IssueBoundarysById);
+                AddIssues(issueIds);
             }
-            _lineText = text;
-            ParseLine();
-        }
-
-        public Suppression(TextContainer text, int lineNumber)
-        {
-            if (text is null)
+            else
             {
-                throw new ArgumentNullException(nameof(text));
+                IssueBoundarysById = new Dictionary<string, Boundary>();
+                AddIssues(issueIds);
+                var suppressionString = GetSuppressionString(IssueBoundarysById.Keys, ExpirationDate, Reviewer);
+                Boundary = new Boundary { Index = 0, Length = suppressionString.Length };
             }
-            _text = text;
-            _lineNumber = lineNumber;
-            _lineText = _text.GetLineContent(_lineNumber);
-
-            ParseLine();
+            
         }
 
-        /// <summary>
-        ///     Get the optional manual reviewer
-        /// </summary>
-        public string Reviewer
+        public Suppression(string? reviewer, DateTime? expirationDate, IEnumerable<string> issueIds, string? prefix = null, string? suffix = null)
         {
-            get { return _reviewer; }
+            Reviewer = reviewer;
+            ExpirationDate = expirationDate;
+            IssueBoundarysById = new Dictionary<string, Boundary>();
+            Prefix = prefix;
+            Suffix = suffix;
+            AddIssues(issueIds);
+            var suppressionString = GetSuppressionString(IssueBoundarysById.Keys, ExpirationDate, Reviewer);
+            Boundary = new Boundary { Index = 0, Length = suppressionString.Length };
+
         }
 
-        /// <summary>
-        ///     Suppression expiration date
-        /// </summary>
-        public DateTime ExpirationDate { get { return _expirationDate; } }
-
-        /// <summary>
-        ///     Suppression expresion start index on the given line
-        /// </summary>
-        public int Index { get { return _suppressStart; } }
-
-        /// <summary>
-        ///     Validity of suppression expresion
-        /// </summary>
-        /// <returns> True if suppression is in effect </returns>
-        public bool IsInEffect
+        public Suppression(string? reviewer, DateTime? expirationDate, string issueId, Line line)
+            : this(reviewer, expirationDate, new[] { issueId }, line)
         {
-            get
+
+        }
+
+        public Suppression(string? reviewer, DateTime? expirationDate, string issueId, string? prefix = null, string? suffix = null)
+            : this(reviewer, expirationDate, new[] { issueId }, prefix, suffix)
+        {
+
+        }
+
+        public void AddIssue(string issueId)
+        {
+            if (!IssueBoundarysById.ContainsKey(issueId))
             {
-                bool doesItExists = (Index >= 0 && _issues.Count > 0);
-                return (doesItExists && DateTime.Now < _expirationDate);
+                IssueBoundarysById.Add(issueId, new Boundary());
             }
         }
 
-        /// <summary>
-        ///     Position of issues list
-        /// </summary>
-        public int IssuesListIndex { get; set; } = -1;
-
-        /// <summary>
-        ///     Suppression expression length
-        /// </summary>
-        public int Length { get { return _suppressLength; } }
-
-        /// <summary>
-        ///     Get issue IDs for the suppression
-        /// </summary>
-        /// <returns> List of issue IDs </returns>
-        public virtual SuppressedIssue[] GetIssues()
+        public void AddIssues(IEnumerable<string> issueIds)
         {
-            return _issues.ToArray();
-        }
-
-        /// <summary>
-        /// Check if the suppression has expired
-        /// </summary>
-        /// <param name="issueId"></param>
-        /// <returns></returns>
-        public bool IsExpired
-        {
-            get
+            foreach (var issueId in issueIds)
             {
-                bool doesItExists = (Index >= 0 && _issues.Count > 0);
-                return (doesItExists && DateTime.Now > _expirationDate);
+                AddIssue(issueId);
             }
+        }
+
+        public bool IsExpired()
+            => ExpirationDate.HasValue && DateTime.Now > ExpirationDate.Value;
+
+        public bool HasIssues()
+            => IssueBoundarysById.Count > 0;
+
+        public static Regex GetRegex()
+            => new(PATTERN, RegexOptions.IgnoreCase);
+
+        public static Suppression From(string line)
+            => From(new Line(line));
+
+        public static Suppression From(Line line)
+        {
+            var lineParseResult = LineParseResult.From(line);
+            return new Suppression(lineParseResult.Reviewer, lineParseResult.ExpirationDate, new Dictionary<string, Boundary>(lineParseResult.IssueBoundarysById), line, lineParseResult.SuppressionBoundary, lineParseResult.IssuesListBoundary);
         }
 
         /// <summary>
@@ -114,97 +134,167 @@ namespace Microsoft.DevSkim
         /// <returns> True if rule is suppressed </returns>
         public SuppressedIssue? GetSuppressedIssue(string issueId)
         {
-            SuppressedIssue? issue = _issues.FirstOrDefault(x => x.ID == issueId || x.ID == KeywordAll);
-            if (DateTime.Now < _expirationDate && issue != null)
-                return issue;
-            else
+            if (DateTime.Now > ExpirationDate)
+            {
                 return null;
+            }
+
+            if (IssueBoundarysById.TryGetValue(issueId, out var issueBoundary))
+            {
+                return new SuppressedIssue
+                {
+                    ID = issueId,
+                    Boundary = issueBoundary
+                };
+            }
+
+            if (IssueBoundarysById.TryGetValue(KeywordAll, out var alIssuesBoundary))
+            {
+                return new SuppressedIssue
+                {
+                    ID = KeywordAll,
+                    Boundary = alIssuesBoundary
+                };
+            }
+
+            return null;
         }
 
-        public string[] GetSuppressedIds => _issues.Select(x => x.ID ?? string.Empty).Where(x => !string.IsNullOrEmpty(x)).ToArray();
+        public string ToSuppressionString(string? prefix = null, string? suffix = null)
+            => GetSuppressionString(IssueBoundarysById.Keys, ExpirationDate, Reviewer, prefix, suffix);
 
-        protected const string KeywordAll = "all";
-        protected const string KeywordIgnore = "ignore";
-        protected const string KeywordPrefix = "DevSkim:";
-        protected const string KeywordUntil = "until";
-        protected const string KeywordBy = "by";
-        protected DateTime _expirationDate { get; set; } = DateTime.MaxValue;
-        protected List<SuppressedIssue> _issues { get; set; } = new List<SuppressedIssue>();
-        protected int _lineNumber { get; set; }
-        protected string _lineText { get; set; }
-        protected int _suppressLength { get; set; } = -1;
-        protected int _suppressStart { get; set; } = -1;
-        protected TextContainer? _text { get; set; }
-        protected Regex reg { get; set; } = new Regex(pattern, RegexOptions.IgnoreCase);
-
-        protected void ParseLine()
+        public static string GetSuppressionString(IEnumerable<string> issueIds, DateTime? expirationDate, string? reviewer, string? prefix = null, string? suffix = null)
         {
-            Match match = reg.Match(_lineText);
-
-            if (match.Success)
+            var sb = new StringBuilder();
+            foreach (var issueId in issueIds)
             {
-                _suppressStart = match.Index;
-                _suppressLength = match.Length;
-
-                string idString = match.Groups[1].Value.Trim();
-                IssuesListIndex = match.Groups[1].Index;
-
-                // Parse Reviewer
-                if (match.Groups.Count > 4 && !string.IsNullOrEmpty(match.Groups[4].Value))
+                if (!string.IsNullOrEmpty(prefix))
                 {
-                    _reviewer = match.Groups[4].Value;
+                    sb.Append($"{prefix} ");
                 }
+                sb.Append($"DevSkim: ignore {issueId}");
 
-                // Parse date
-                if (match.Groups.Count > 2 && !string.IsNullOrEmpty(match.Groups[2].Value))
+                if (expirationDate.HasValue)
                 {
-                    string date = match.Groups[2].Value;
-                    reg = new Regex(@"(\d{4}-\d{2}-\d{2})");
-                    Match m = reg.Match(date);
-                    if (m.Success)
+                    sb.Append($" until {expirationDate.Value}");
+                }
+                if (!string.IsNullOrEmpty(reviewer))
+                {
+                    sb.Append($" by {reviewer}");
+                }
+                if (!string.IsNullOrEmpty(suffix))
+                {
+                    sb.Append($" {suffix}");
+                }
+            }
+            return sb.ToString();
+
+        }
+
+        private class LineParseResult
+        {
+            public readonly ImmutableDictionary<string, Boundary> IssueBoundarysById = ImmutableDictionary<string, Boundary>.Empty;
+            public readonly Boundary SuppressionBoundary;
+            public readonly Boundary? IssuesListBoundary;
+            public readonly string? Reviewer;
+            public readonly DateTime? ExpirationDate;
+            public readonly Line Line;
+
+            private LineParseResult(Line line, ImmutableDictionary<string, Boundary> issueBoundarysById, Boundary suppressionBoundary, string? reviewer, DateTime? expirationDate)
+            {
+                Line = line;
+                if (issueBoundarysById is not null)
+                {
+                    IssueBoundarysById = issueBoundarysById;
+                }
+                SuppressionBoundary = suppressionBoundary;
+                Reviewer = reviewer;
+                ExpirationDate = expirationDate;
+                IssuesListBoundary = IssueBoundarysById is not null && IssueBoundarysById.Count > 0 ? IssuesListBoundary = new Boundary
                     {
-                        try
-                        {
-                            _expirationDate = DateTime.ParseExact(m.Value, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-                        }
-                        catch (FormatException)
-                        {
-                            _expirationDate = DateTime.MinValue;
-                        }
+                        Index = IssueBoundarysById.Min(i => i.Value.Index),
+                        Length = IssueBoundarysById.Sum(i => i.Value.Length)
+                    } : null;
+                
+            }
+
+            public static LineParseResult From(Line line)
+            {
+                DateTime? expirationDate = null;
+                var reg = GetRegex();
+                string? reviewer = null;
+                var suppressionBoundary = new Boundary { Index = -1, Length = 0 };
+                var issueBoundarysById = new Dictionary<string, Boundary>();
+
+                Match match = reg.Match(line.Content);
+
+                if (match.Success)
+                {
+                    suppressionBoundary = new Boundary {  Index = match.Index, Length = match.Length };
+
+                    string idString = match.Groups[1].Value.Trim();
+                    var issuesListIndex = match.Groups[1].Index;
+
+                    // Parse Reviewer
+                    if (match.Groups.Count > 4 && !string.IsNullOrEmpty(match.Groups[4].Value))
+                    {
+                        reviewer = match.Groups[4].Value;
                     }
-                }
 
-                // parse Ids.
-                if (idString == KeywordAll)
-                {
-                    _issues.Add(new SuppressedIssue()
+                    // Parse date
+                    if (match.Groups.Count > 2 && !string.IsNullOrEmpty(match.Groups[2].Value))
                     {
-                        ID = KeywordAll,
-                        Boundary = new Boundary()
+                        string date = match.Groups[2].Value;
+                        reg = new Regex(@"(\d{4}-\d{2}-\d{2})");
+                        Match m = reg.Match(date);
+                        if (m.Success)
                         {
-                            Index = IssuesListIndex,
-                            Length = KeywordAll.Length
-                        }
-                    });
-                }
-                else
-                {
-                    string[] ids = idString.Split(',');
-                    int index = IssuesListIndex;
-                    foreach (string id in ids)
-                    {
-                        _issues.Add(new SuppressedIssue()
-                        {
-                            ID = id,
-                            Boundary = new Boundary()
+                            try
                             {
-                                Index = index,
-                                Length = id.Length
+                                expirationDate = DateTime.ParseExact(m.Value, DATETIME_FORMAT, System.Globalization.CultureInfo.InvariantCulture);
                             }
+                            catch (FormatException)
+                            {
+                                expirationDate = null;
+                            }
+                        }
+                    }
+
+                    // parse Ids.
+                    if (idString == KeywordAll)
+                    {
+                        issueBoundarysById.Add(KeywordAll, new Boundary()
+                        {
+                            Index = issuesListIndex,
+                            Length = KeywordAll.Length
                         });
-                        index += id.Length + 1;
+                    }
+                    else
+                    {
+                        string[] ids = idString.Split(',');
+                        int index = issuesListIndex;
+                        foreach (string id in ids)
+                        {
+                            issueBoundarysById.Add(id, new Boundary()
+                            {
+                                Index = issuesListIndex,
+                                Length = KeywordAll.Length
+                            });
+                            index += id.Length + 1;
+                        }
                     }
                 }
+                return new LineParseResult(line, issueBoundarysById.ToImmutableDictionary(), suppressionBoundary, reviewer, expirationDate);
+            }
+
+            public Suppression? ToSuppression()
+            {
+                if (SuppressionBoundary is null)
+                {
+                    return null;
+                }
+
+                return new Suppression(Reviewer, ExpirationDate, new Dictionary<string, Boundary>(IssueBoundarysById), Line, SuppressionBoundary, IssuesListBoundary);
             }
         }
     }

@@ -31,12 +31,12 @@ namespace Microsoft.DevSkim.Tests
             int resultCode = new SuppressionCommand(opts).Run();
             Assert.AreEqual(0, resultCode);
             string[] result = File.ReadAllLines(sourceFile);
-            Suppression firstLineSuppression = new Suppression(result[0]);
+            Suppression firstLineSuppression = Suppression.From(result[0]);
             Assert.IsTrue(firstLineSuppression.IsInEffect);
             Assert.AreEqual("DS126858", firstLineSuppression.GetSuppressedIds.First());
             Assert.AreEqual(reviewerName, firstLineSuppression.Reviewer);
             Assert.AreEqual(expectedExpiration.Date, firstLineSuppression.ExpirationDate);
-            Suppression secondLineSuppression = new Suppression(result[1]);
+            Suppression secondLineSuppression = Suppression.From(result[1]);
             Assert.IsTrue(secondLineSuppression.IsInEffect);
             Assert.AreEqual("DS137138", secondLineSuppression.GetSuppressedIds.First());
             Assert.AreEqual(reviewerName, secondLineSuppression.Reviewer);
@@ -62,11 +62,11 @@ namespace Microsoft.DevSkim.Tests
             int resultCode = new SuppressionCommand(opts).Run();
             Assert.AreEqual(0, resultCode);
             string[] result = File.ReadAllLines(sourceFile);
-            Suppression firstLineSuppression = new Suppression(result[0]);
+            Suppression firstLineSuppression = Suppression.From(result[0]);
             Assert.IsTrue(firstLineSuppression.IsInEffect);
             Assert.AreEqual("DS126858", firstLineSuppression.GetSuppressedIds.First());
             Assert.AreEqual(reviewerName, firstLineSuppression.Reviewer);
-            Suppression secondLineSuppression = new Suppression(result[1]);
+            Suppression secondLineSuppression = Suppression.From(result[1]);
             Assert.IsTrue(secondLineSuppression.IsInEffect);
             Assert.AreEqual("DS137138", secondLineSuppression.GetSuppressedIds.First());
             Assert.AreEqual(reviewerName, secondLineSuppression.Reviewer);
@@ -91,10 +91,10 @@ namespace Microsoft.DevSkim.Tests
             int resultCode = new SuppressionCommand(opts).Run();
             Assert.AreEqual(0, resultCode);
             string[] result = File.ReadAllLines(sourceFile);
-            Suppression firstLineSuppression = new Suppression(result[0]);
+            Suppression firstLineSuppression = Suppression.From(result[0]);
             Assert.IsTrue(firstLineSuppression.IsInEffect);
             Assert.AreEqual("DS126858", firstLineSuppression.GetSuppressedIds.First());
-            Suppression secondLineSuppression = new Suppression(result[1]);
+            Suppression secondLineSuppression = Suppression.From(result[1]);
             Assert.IsTrue(secondLineSuppression.IsInEffect);
             Assert.AreEqual("DS137138", secondLineSuppression.GetSuppressedIds.First());
         }
@@ -117,7 +117,7 @@ namespace Microsoft.DevSkim.Tests
             int resultCode = new SuppressionCommand(opts).Run();
             Assert.AreEqual(0, resultCode);
             string[] result = File.ReadAllLines(sourceFile);
-            Suppression firstLineSuppression = new Suppression(result[0]);
+            Suppression firstLineSuppression = Suppression.From(result[0]);
             Assert.IsTrue(firstLineSuppression.IsInEffect);
             Assert.AreEqual("DS137138", firstLineSuppression.GetSuppressedIds[0]);
             Assert.AreEqual("DS126858", firstLineSuppression.GetSuppressedIds[1]);
@@ -142,7 +142,7 @@ namespace Microsoft.DevSkim.Tests
             int resultCode = new SuppressionCommand(opts).Run();
             Assert.AreEqual(0, resultCode);
             string[] result = File.ReadAllLines(sourceFile);
-            Suppression firstLineSuppression = new Suppression(result[0]);
+            Suppression firstLineSuppression = Suppression.From(result[0]);
             Assert.IsTrue(firstLineSuppression.IsInEffect);
             Assert.AreEqual("DS137138", firstLineSuppression.GetSuppressedIds[0]);
             Assert.AreEqual(1, firstLineSuppression.GetSuppressedIds.Length);
@@ -167,10 +167,10 @@ namespace Microsoft.DevSkim.Tests
             int resultCode = new SuppressionCommand(opts).Run();
             Assert.AreEqual(0, resultCode);
             string[] result = File.ReadAllLines(sourceFile);
-            Suppression firstLineSuppression = new Suppression(result[0]);
+            Suppression firstLineSuppression = Suppression.From(result[0]);
             Assert.IsTrue(firstLineSuppression.IsInEffect);
-            Assert.AreEqual("DS137138", firstLineSuppression.GetSuppressedIds[0]);
-            Assert.AreEqual("DS126858", firstLineSuppression.GetSuppressedIds[1]);
+            Assert.AreEqual("DS126858", firstLineSuppression.GetSuppressedIds[0]);
+            Assert.AreEqual("DS137138", firstLineSuppression.GetSuppressedIds[1]);
             Assert.AreEqual(expectedExpiration.Date, firstLineSuppression.ExpirationDate);
         }
 
@@ -255,10 +255,10 @@ namespace Microsoft.DevSkim.Tests
             int resultCode = new SuppressionCommand(opts).Run();
             Assert.AreEqual(0, resultCode);
             string[] result = File.ReadAllLines(sourceFile);
-            Suppression firstLineSuppression = new Suppression(result[0]);
+            Suppression firstLineSuppression = Suppression.From(result[0]);
             Assert.IsTrue(firstLineSuppression.IsInEffect);
             Assert.AreEqual("DS126858", firstLineSuppression.GetSuppressedIds.First());
-            Suppression secondLineSuppression = new Suppression(result[2]);
+            Suppression secondLineSuppression = Suppression.From(result[2]);
             Assert.IsTrue(secondLineSuppression.IsInEffect);
             Assert.AreEqual("DS137138", secondLineSuppression.GetSuppressedIds.First());
         }

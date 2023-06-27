@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Microsoft.DevSkim.CLI": {
+      "commandName": "Project",
+      "commandLineArgs": "suppress -I C:\\Users\\robstewart\\Downloads\\devskim-vscode-test -O C:\\Users\\robstewart\\Downloads\\devskim-vscode-test\\devskim-results.json --all"
+    }
+  }
+}
